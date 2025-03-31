@@ -109,7 +109,7 @@ def get_price_metrics(ticker):
         print("Downloaded DataFrame shape:", df.shape)
         print("Columns returned:", df.columns)
         print("First few rows:
-", df.head())
+", df.head()))
         if isinstance(df.columns, pd.MultiIndex):
             df.columns = df.columns.get_level_values(1)
         if 'Close' not in df.columns:
