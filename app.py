@@ -18,7 +18,12 @@ openai.api_key = OPENAI_API_KEY
 
 # Load reference class from historical data
 
+reference_df = None
+
 def load_reference_class():
+    global reference_df
+    if reference_df is not None:
+        return reference_df
     df = yf.download('SPY', period='5y', interval='1d')
     if isinstance(df.columns, pd.MultiIndex):
         df.columns = df.columns.get_level_values(1)
@@ -46,7 +51,8 @@ def load_reference_class():
     df['rebounded'] = (df['forward_return_3mo'] > 0).astype(int)
     df['recovery_months'] = np.where(df['rebounded'] == 1, 3, 6)
 
-    return df[['drawdown_pct', 'volatility_30d', 'volatility_7d', 'momentum_1w', 'rebounded', 'recovery_months', 'time_to_recovery']].dropna()
+        reference_df = df[['drawdown_pct', 'volatility_30d', 'volatility_7d', 'momentum_1w', 'rebounded', 'recovery_months', 'time_to_recovery']].dropna()
+    return reference_df
 
 
 
