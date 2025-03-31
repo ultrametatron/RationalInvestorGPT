@@ -132,7 +132,11 @@ def forecast():
         return jsonify({"error": "asset_symbol is required"}), 400
 
     print(f"Forecast request received for: {asset_symbol}")
-    drawdown, volatility, volatility_7d, momentum_1w = get_price_metrics(asset_symbol)
+    try:
+        drawdown, volatility, volatility_7d, momentum_1w = get_price_metrics(asset_symbol)
+    except Exception as e:
+        print(f"Error in get_price_metrics: {e}")
+        return jsonify({"error": f"Failed to compute price metrics: {str(e)}"}), 500
     print(f"Drawdown: {drawdown:.4f}, Volatility: {volatility:.4f}, Vol 7d: {volatility_7d:.4f}, Momentum: {momentum_1w:.4f}")
 
     # Load reference class and fit nearest neighbors model
