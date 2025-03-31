@@ -129,7 +129,7 @@ def forecast():
     if not asset_symbol:
         return jsonify({"error": "asset_symbol is required"}), 400
 
-        drawdown, volatility, volatility_7d, momentum_1w = get_price_metrics(asset_symbol)
+    drawdown, volatility, volatility_7d, momentum_1w = get_price_metrics(asset_symbol)
 
     # Load reference class and fit nearest neighbors model
     df = load_reference_class()
