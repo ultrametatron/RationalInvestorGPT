@@ -108,6 +108,8 @@ def get_price_metrics(ticker):
         df = yf.download(ticker, period="2mo", interval="1d")
         if isinstance(df.columns, pd.MultiIndex):
             df.columns = df.columns.get_level_values(1)
+        if 'Adj Close' not in df.columns:
+            raise ValueError("'Adj Close' not found in yfinance response. Check ticker or try again later.")
         if df.empty:
             raise ValueError("No data returned from yfinance.")
         df["returns"] = df["Adj Close"].pct_change()
