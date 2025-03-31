@@ -28,20 +28,20 @@ def load_reference_class():
     if isinstance(df.columns, pd.MultiIndex):
         df.columns = df.columns.get_level_values(1)
     if 'Close' not in df.columns:
-        return pd.DataFrame()  # Safely return an empty DataFrame if Adj Close is missing
-    df['returns'] = df['Adj Close'].pct_change()
-    df['rolling_max'] = df['Adj Close'].rolling(window=252, min_periods=1).max()
-    df['drawdown_pct'] = (df['Adj Close'] - df['rolling_max']) / df['rolling_max']
+        return pd.DataFrame()  # Safely return an empty DataFrame if Close is missing
+    df['returns'] = df['Close'].pct_change()
+    df['rolling_max'] = df['Close'].rolling(window=252, min_periods=1).max()
+    df['drawdown_pct'] = (df['Close'] - df['rolling_max']) / df['rolling_max']
     df['volatility_30d'] = df['returns'].rolling(30).std() * np.sqrt(252)
     df['volatility_7d'] = df['returns'].rolling(7).std() * np.sqrt(252)
-    df['momentum_1w'] = df['Adj Close'].pct_change(periods=5)
-    df['forward_return_3mo'] = df['Adj Close'].pct_change(periods=63).shift(-63)
+    df['momentum_1w'] = df['Close'].pct_change(periods=5)
+    df['forward_return_3mo'] = df['Close'].pct_change(periods=63).shift(-63)
 
     df['time_to_recovery'] = np.nan
     for i in range(len(df)):
-        current_price = df['Adj Close'].iloc[i]
+        current_price = df['Close'].iloc[i]
         for j in range(i + 1, len(df)):
-            if df['Adj Close'].iloc[j] >= current_price:
+            if df['Close'].iloc[j] >= current_price:
                 df.at[df.index[i], 'time_to_recovery'] = (df.index[j] - df.index[i]).days / 30.0
                 break
 
@@ -108,19 +108,19 @@ def get_price_metrics(ticker):
         df = yf.download(ticker, period="2mo", interval="1d")
         if isinstance(df.columns, pd.MultiIndex):
             df.columns = df.columns.get_level_values(1)
-        if 'Adj Close' not in df.columns:
-            raise ValueError("'Adj Close' not found in yfinance response. Check ticker or try again later.")
+        if 'Close' not in df.columns:
+            raise ValueError("'Close' not found in yfinance response. Check ticker or try again later.")
         if df.empty:
             raise ValueError("No data returned from yfinance.")
-        df["returns"] = df["Adj Close"].pct_change()
+        df["returns"] = df["Close"].pct_change()
 
-        current_price = df["Adj Close"].iloc[-1]
-        peak_price = df["Adj Close"].max()
+        current_price = df["Close"].iloc[-1]
+        peak_price = df["Close"].max()
         drawdown_pct = (current_price - peak_price) / peak_price
 
         volatility_30d = df["returns"].rolling(30).std().iloc[-1] * np.sqrt(252)
         volatility_7d = df["returns"].rolling(7).std().iloc[-1] * np.sqrt(252)
-        momentum_1w = (df["Adj Close"].iloc[-1] - df["Adj Close"].iloc[-6]) / df["Adj Close"].iloc[-6]
+        momentum_1w = (df["Close"].iloc[-1] - df["Close"].iloc[-6]) / df["Close"].iloc[-6]
 
         return drawdown_pct, volatility_30d, volatility_7d, momentum_1w
     except Exception as e:
