@@ -49,13 +49,7 @@ def load_reference_class():
 
     return df[['drawdown_pct', 'volatility_30d', 'volatility_7d', 'momentum_1w', 'rebounded', 'recovery_months', 'time_to_recovery']].dropna()
 
-# Load expanded historical dataset
-df = load_reference_class()
 
-# Fit Nearest Neighbors model using drawdown and 30-day volatility
-X = df[['drawdown_pct', 'volatility_30d']]
-nn_model = NearestNeighbors(n_neighbors=3)
-nn_model.fit(X)
 
 # Flask API setup
 app = Flask(__name__)
@@ -135,8 +129,13 @@ def forecast():
     if not asset_symbol:
         return jsonify({"error": "asset_symbol is required"}), 400
 
-    drawdown, volatility, volatility_7d, momentum_1w = get_price_metrics(asset_symbol)
+        drawdown, volatility, volatility_7d, momentum_1w = get_price_metrics(asset_symbol)
 
+    # Load reference class and fit nearest neighbors model
+    df = load_reference_class()
+    X = df[['drawdown_pct', 'volatility_30d']]
+    nn_model = NearestNeighbors(n_neighbors=3)
+    nn_model.fit(X)
     distances, indices = nn_model.kneighbors([[drawdown, volatility]])
     similar_cases = df.iloc[indices[0]]
 
