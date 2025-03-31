@@ -106,6 +106,8 @@ def classify_news_sentiment_with_gpt(headlines):
 def get_price_metrics(ticker):
     try:
         df = yf.download(ticker, period="2mo", interval="1d")
+        if isinstance(df.columns, pd.MultiIndex):
+            df.columns = df.columns.get_level_values(1)
         if df.empty:
             raise ValueError("No data returned from yfinance.")
         df["returns"] = df["Adj Close"].pct_change()
