@@ -23,7 +23,7 @@ def load_reference_class():
     if isinstance(df.columns, pd.MultiIndex):
         df.columns = df.columns.get_level_values(1)
     if 'Adj Close' not in df.columns:
-        raise RuntimeError("Yahoo Finance data did not return 'Adj Close'. Check network or API limits.")
+        return pd.DataFrame()  # Safely return an empty DataFrame if Adj Close is missing
     if 'Adj Close' not in df.columns:
         if isinstance(df.columns, pd.MultiIndex):
             df.columns = df.columns.get_level_values(1)
@@ -133,6 +133,8 @@ def forecast():
 
     # Load reference class and fit nearest neighbors model
     df = load_reference_class()
+    if df.empty:
+        return jsonify({"error": "Reference class data could not be loaded. Please try again later."}), 503
     X = df[['drawdown_pct', 'volatility_30d']]
     nn_model = NearestNeighbors(n_neighbors=3)
     nn_model.fit(X)
