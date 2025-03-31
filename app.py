@@ -132,7 +132,7 @@ def forecast():
 
     # Load reference class and fit nearest neighbors model
     df = load_reference_class()
-    if df.empty:
+    if df.empty or 'drawdown_pct' not in df.columns:
         return jsonify({"error": "Reference class data could not be loaded. Please try again later."}), 503
     X = df[['drawdown_pct', 'volatility_30d']]
     nn_model = NearestNeighbors(n_neighbors=3)
