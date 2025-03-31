@@ -140,7 +140,7 @@ def forecast():
     headlines = fetch_recent_headlines(asset_symbol)
     sentiment_summary = classify_news_sentiment_with_gpt(headlines)
 
-        avg_time_to_recovery = similar_cases['time_to_recovery'].mean()
+    avg_time_to_recovery = similar_cases['time_to_recovery'].mean()
 
     response = {
         'matched_cases': similar_cases.to_dict(orient='records'),
