@@ -1,4 +1,4 @@
-# 🧠 RationalInvestorGPT (Rewritten)
+# 🧠 RationalInvestorGPT 
 
 **RationalInvestorGPT** is a behavioral forecasting API that leverages reference class forecasting, real-time market data, and subtle nudges drawn from behavioral economics. It’s designed to help users overcome biases (like loss aversion or recency bias) and make more reflective, data-driven investment decisions.
 
