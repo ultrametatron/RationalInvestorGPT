@@ -77,7 +77,10 @@ NEWS_API_KEY=your_newsapi_key
 - **yFinance** for real-time financial data retrieval
 - **OpenAI GPT-4** to interpret and summarize news sentiment
 - **NewsAPI** to gather relevant headlines
-- **Render** (or Replit) for cloud deployment🧠 Inspiration
+- **Render** (or Replit) for cloud deployment
+-
+-
+## 🧠 Inspiration
 
 RationalInvestorGPT draws upon:
 
