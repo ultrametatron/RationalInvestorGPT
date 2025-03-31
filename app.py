@@ -27,8 +27,6 @@ def load_reference_class():
     df = yf.download('SPY', period='5y', interval='1d')
     if isinstance(df.columns, pd.MultiIndex):
         df.columns = df.columns.get_level_values(1)
-    if isinstance(df.columns, pd.MultiIndex):
-        df.columns = df.columns.get_level_values(1)
     if 'Adj Close' not in df.columns:
         return pd.DataFrame()  # Safely return an empty DataFrame if Adj Close is missing
     df['returns'] = df['Adj Close'].pct_change()
@@ -50,8 +48,7 @@ def load_reference_class():
     df = df.dropna(subset=['forward_return_3mo', 'time_to_recovery'])
     df['rebounded'] = (df['forward_return_3mo'] > 0).astype(int)
     df['recovery_months'] = np.where(df['rebounded'] == 1, 3, 6)
-
-        reference_df = df[['drawdown_pct', 'volatility_30d', 'volatility_7d', 'momentum_1w', 'rebounded', 'recovery_months', 'time_to_recovery']].dropna()
+    reference_df = df[['drawdown_pct', 'volatility_30d', 'volatility_7d', 'momentum_1w', 'rebounded', 'recovery_months', 'time_to_recovery']].dropna()
     return reference_df
 
 
@@ -134,7 +131,9 @@ def forecast():
     if not asset_symbol:
         return jsonify({"error": "asset_symbol is required"}), 400
 
+    print(f"Forecast request received for: {asset_symbol}")
     drawdown, volatility, volatility_7d, momentum_1w = get_price_metrics(asset_symbol)
+    print(f"Drawdown: {drawdown:.4f}, Volatility: {volatility:.4f}, Vol 7d: {volatility_7d:.4f}, Momentum: {momentum_1w:.4f}")
 
     # Load reference class and fit nearest neighbors model
     df = load_reference_class()
@@ -145,6 +144,7 @@ def forecast():
     nn_model.fit(X)
     distances, indices = nn_model.kneighbors([[drawdown, volatility]])
     similar_cases = df.iloc[indices[0]]
+    print(f"Matched reference cases: {len(similar_cases)}")
 
     avg_recovery = similar_cases['recovery_months'].mean()
     rebound_prob = similar_cases['rebounded'].mean()
