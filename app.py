@@ -20,6 +20,9 @@ openai.api_key = OPENAI_API_KEY
 
 def load_reference_class():
     df = yf.download('SPY', period='5y', interval='1d')
+    if 'Adj Close' not in df.columns:
+        if isinstance(df.columns, pd.MultiIndex):
+            df.columns = df.columns.get_level_values(1)
     df['returns'] = df['Adj Close'].pct_change()
     df['rolling_max'] = df['Adj Close'].rolling(window=252, min_periods=1).max()
     df['drawdown_pct'] = (df['Adj Close'] - df['rolling_max']) / df['rolling_max']
