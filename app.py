@@ -1,3 +1,5 @@
+
+
 # RationalInvestorGPT: Behavioral Forecasting API with News Sentiment and Live Price Data
 
 import pandas as pd
@@ -5,6 +7,7 @@ import numpy as np
 from sklearn.neighbors import NearestNeighbors
 from flask import Flask, request, jsonify
 import requests
+from openai import OpenAI
 import openai
 import yfinance as yf
 import os
@@ -26,7 +29,7 @@ def load_reference_class():
         return reference_df
     df = yf.download('SPY', period='5y', interval='1d')
     if isinstance(df.columns, pd.MultiIndex):
-        df.columns = df.columns.get_level_values(1)
+            df.columns = [col[0] for col in df.columns]
     if 'Close' not in df.columns:
         return pd.DataFrame()  # Safely return an empty DataFrame if Close is missing
     df['returns'] = df['Close'].pct_change()
@@ -82,8 +85,10 @@ def fetch_recent_headlines(asset_symbol, num_articles=5):
 
 def classify_news_sentiment_with_gpt(headlines):
     prompt = (
-        "Classify the following financial news headlines as Positive, Negative, or Neutral. "
-        "Then return an overall sentiment score from -1 (very negative) to +1 (very positive).\n\n"
+        "Classify the following financial news headlines as Positive, Neutral, or Negative. "
+        "Then return a brief summary of sentiment by labeling each headline. "
+        "At the end, include an overall sentiment score from -1 to +1 on its own line (e.g. Overall score: +0.3). "
+        "Format the response clearly with bullet points and consistent spacing.\n\n"
     )
     for h in headlines:
         prompt += f"- {h}\n"
@@ -94,11 +99,12 @@ def classify_news_sentiment_with_gpt(headlines):
     ]
 
     try:
-        completion = openai.ChatCompletion.create(
-            model="gpt-4",
+        client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+        completion = client.chat.completions.create(
+            model="gpt-3.5-turbo",
             messages=messages
         )
-        return completion["choices"][0]["message"]["content"]
+        return completion.choices[0].message.content
     except Exception as e:
         return f"Error generating sentiment summary: {str(e)}"
 
@@ -110,7 +116,7 @@ def get_price_metrics(ticker):
         print("Columns returned:", df.columns)
         print("First few rows:", df.head())
         if isinstance(df.columns, pd.MultiIndex):
-            df.columns = df.columns.get_level_values(1)
+            df.columns = [col[0] for col in df.columns]
         if 'Close' not in df.columns:
             raise ValueError("'Close' not found in yfinance response. Check ticker or try again later.")
         if df.empty:
