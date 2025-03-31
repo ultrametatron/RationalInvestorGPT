@@ -1,4 +1,4 @@
-# Reference Class Forecasting API with News Sentiment
+# RationalInvestorGPT: Behavioral Forecasting API with News Sentiment
 
 import pandas as pd
 import numpy as np
@@ -34,7 +34,7 @@ app = Flask(__name__)
 
 @app.route('/')
 def home():
-    return "Reference Class Forecasting API is live. Use POST /forecast with drawdown_pct, volatility, and optional asset_symbol."
+    return "RationalInvestorGPT API is live. Use POST /forecast with drawdown_pct, volatility, and optional asset_symbol."
 
 
 def fetch_recent_headlines(asset_symbol, num_articles=5):
