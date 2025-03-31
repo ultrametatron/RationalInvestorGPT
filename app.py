@@ -20,6 +20,10 @@ openai.api_key = OPENAI_API_KEY
 
 def load_reference_class():
     df = yf.download('SPY', period='5y', interval='1d')
+    if isinstance(df.columns, pd.MultiIndex):
+        df.columns = df.columns.get_level_values(1)
+    if 'Adj Close' not in df.columns:
+        raise RuntimeError("Yahoo Finance data did not return 'Adj Close'. Check network or API limits.")
     if 'Adj Close' not in df.columns:
         if isinstance(df.columns, pd.MultiIndex):
             df.columns = df.columns.get_level_values(1)
