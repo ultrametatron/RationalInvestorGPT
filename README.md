@@ -15,7 +15,7 @@
   - Project potential recovery time (time to break even)
 - **Fetches News Headlines** using NewsAPI, then summarizes sentiment via GPT
 - **Returns** a consolidated JSON response through a single `/forecast` endpoint, providing both quantitative forecasts and qualitative nudges
-- **Integrates** seamlessly with the custom GPT "RationalIntegrationGPT," enabling real-time, behaviorally informed financial advice backed by forecasting and nudging principles.
+- **Integrates** seamlessly with the custom GPT "RationalInvestorGPT," enabling real-time, behaviorally informed financial advice backed by forecasting and nudging principles.
 
 ---
 
