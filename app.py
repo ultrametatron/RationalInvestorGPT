@@ -100,7 +100,7 @@ def load_reference_class() -> pd.DataFrame:
         return reference_df
 
     # Download 5-year daily data from yfinance
-    df_raw = yf.download("SPY", period="5y", interval="1d")  # might be multi-level
+    df_raw = yf.download("SPY", period="5y", interval="1d")
 
     # If 'Close' missing or empty, bail out
     if 'Close' not in df_raw.columns or df_raw.empty:
@@ -110,14 +110,14 @@ def load_reference_class() -> pd.DataFrame:
     # Extract the 'Close' part
     close_data = df_raw['Close']
 
-    # If 'close_data' is 2D, pick just the first column
+    # If close_data is 2D, pick just the first column
     if close_data.ndim == 2:
-        close_data = close_data.iloc[:, 0]  # pick the first column
+        close_data = close_data.iloc[:, 0]
 
-    # Now build a clean DataFrame with a single 'Close' column
+    # Build a single-column DataFrame named 'Close'
     df = pd.DataFrame({'Close': close_data})
 
-    # Proceed with rolling calculations
+    # Rolling calculations
     df['returns'] = df['Close'].pct_change()
     df['rolling_max'] = df['Close'].rolling(window=252, min_periods=1).max()
     df['drawdown_pct'] = (df['Close'] - df['rolling_max']) / df['rolling_max']
@@ -145,8 +145,6 @@ def load_reference_class() -> pd.DataFrame:
     ]].dropna()
 
     return reference_df
-
-
 
 
 ########################################################
