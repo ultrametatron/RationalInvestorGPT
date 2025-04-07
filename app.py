@@ -222,9 +222,15 @@ def classify_news_sentiment_with_gpt(headlines_info):
     ]
 
     try:
-        completion = openai.ChatCompletion.create(
-            model="gpt-4o-mini",
-            messages=messages
+    client = openai.OpenAI(api_key=OPENAI_API_KEY)
+
+    completion = client.chat.completions.create(
+        model="gpt-4",
+        messages=messages
+)
+
+return completion.choices[0].message.content
+
         )
         return completion.choices[0].message.content
     except Exception as e:
