@@ -1,16 +1,18 @@
-
-
-# RationalInvestorGPT: Behavioral Forecasting API with News Sentiment and Live Price Data
+# RationalInvestorGPT: Behavioral Forecasting API with News Sentiment and Live Price Data (Alpha Vantage)
+# Completely removed yfinance references and replaced them with Alpha Vantage.
+# Preserves original logic, macros, and structure.
 
 import pandas as pd
 import numpy as np
 from sklearn.neighbors import NearestNeighbors
 from flask import Flask, request, jsonify
 import requests
-from openai import OpenAI
 import openai
-import yfinance as yf
+from alpha_vantage.timeseries import TimeSeries
+import time
 import os
+import datetime
+
 from dotenv import load_dotenv
 
 # Load environment variables
@@ -18,20 +20,102 @@ load_dotenv()
 NEWS_API_KEY = os.getenv("NEWS_API_KEY")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 openai.api_key = OPENAI_API_KEY
+ALPHA_VANTAGE_KEY = os.getenv("ALPHA_VANTAGE_KEY")
 
-# Load reference class from historical data
+# Initialize Alpha Vantage
+ts = TimeSeries(key=ALPHA_VANTAGE_KEY, output_format='pandas')
 
+# We'll maintain a global reference_df for the reference class analysis
 reference_df = None
 
-def load_reference_class():
+########################################################
+# Rate-limit handling decorator for Alpha Vantage calls
+########################################################
+def rate_limit_handler(func):
+    def wrapper(*args, **kwargs):
+        try:
+            return func(*args, **kwargs)
+        except ValueError as e:
+            if 'API call frequency' in str(e):
+                time.sleep(15)  # Wait 15 seconds and retry
+                return func(*args, **kwargs)
+            else:
+                raise e
+    return wrapper
+
+########################################################
+# Unified function to fetch data via Alpha Vantage
+# period is a user-friendly param that we map to outputsize.
+########################################################
+@rate_limit_handler
+# Simple caching dictionary to store fetched data and timestamps
+cache_storage = {}
+CACHE_EXPIRY_SECONDS = 900  # e.g., 15 minutes
+
+def get_cache_key(ticker, period):
+    return f"{ticker}:{period}"
+
+@rate_limit_handler
+def fetch_alpha_data(ticker: str, period: str = '2mo') -> pd.DataFrame:
+    """
+    Fetch daily historical data from Alpha Vantage.
+    period: '2mo' or '5y' etc. (mapped to 'compact' or 'full')
+    Returns: DataFrame with columns: 'Open', 'High', 'Low', 'Close', 'Adj Close', 'Volume'
+    """
+    # Decide outputsize based on period
+    if period == '2mo':
+        outputsize = 'compact'  # ~ 100 most recent trading days
+    else:
+        outputsize = 'full'     # entire available history
+    
+    # Check cache first
+    cache_key = get_cache_key(ticker, period)
+    cached_entry = cache_storage.get(cache_key)
+    now = datetime.datetime.utcnow()
+
+    # If cached data exists and not expired
+    if cached_entry:
+        df_cached, timestamp = cached_entry
+        if (now - timestamp).total_seconds() < CACHE_EXPIRY_SECONDS:
+            return df_cached
+
+    data, meta_data = ts.get_daily_adjusted(symbol=ticker, outputsize=outputsize)
+    df = data.copy()
+    # Rename columns to align with typical format
+    df.rename(columns={
+        '1. open': 'Open',
+        '2. high': 'High',
+        '3. low': 'Low',
+        '4. close': 'Close',
+        '5. adjusted close': 'Adj Close',
+        '6. volume': 'Volume',
+    }, inplace=True)
+
+    # Sort by date ascending
+    df.index = pd.to_datetime(df.index)
+    df.sort_index(inplace=True)
+    return df
+
+    # Store in cache
+    cache_storage[cache_key] = (df, now)
+    return df
+
+########################################################
+# Reference Class Loading using Alpha Vantage
+########################################################
+def load_reference_class() -> pd.DataFrame:
     global reference_df
     if reference_df is not None:
         return reference_df
-    df = yf.download('SPY', period='5y', interval='1d')
-    if isinstance(df.columns, pd.MultiIndex):
-            df.columns = [col[0] for col in df.columns]
-    if 'Close' not in df.columns:
-        return pd.DataFrame()  # Safely return an empty DataFrame if Close is missing
+
+    # For 5-year daily data, we call fetch_alpha_data with '5y'
+    df = fetch_alpha_data('SPY', period='5y')
+    # If 'Close' missing, return empty DataFrame
+    if 'Close' not in df.columns or df.empty:
+        reference_df = pd.DataFrame()
+        return reference_df
+
+    # Compute rolling metrics
     df['returns'] = df['Close'].pct_change()
     df['rolling_max'] = df['Close'].rolling(window=252, min_periods=1).max()
     df['drawdown_pct'] = (df['Close'] - df['rolling_max']) / df['rolling_max']
@@ -40,6 +124,7 @@ def load_reference_class():
     df['momentum_1w'] = df['Close'].pct_change(periods=5)
     df['forward_return_3mo'] = df['Close'].pct_change(periods=63).shift(-63)
 
+    # Compute time to recovery
     df['time_to_recovery'] = np.nan
     for i in range(len(df)):
         current_price = df['Close'].iloc[i]
@@ -51,19 +136,24 @@ def load_reference_class():
     df = df.dropna(subset=['forward_return_3mo', 'time_to_recovery'])
     df['rebounded'] = (df['forward_return_3mo'] > 0).astype(int)
     df['recovery_months'] = np.where(df['rebounded'] == 1, 3, 6)
+
+    # Keep only needed columns
     reference_df = df[['drawdown_pct', 'volatility_30d', 'volatility_7d', 'momentum_1w', 'rebounded', 'recovery_months', 'time_to_recovery']].dropna()
+
     return reference_df
 
-
-
-# Flask API setup
+########################################################
+# Flask Application
+########################################################
 app = Flask(__name__)
 
 @app.route('/')
 def home():
-    return "RationalInvestorGPT API is live. Use POST /forecast with an asset_symbol."
+    return "RationalInvestorGPT API (Alpha Vantage) is live. Use POST /forecast with an asset_symbol."
 
-
+########################################################
+# News Headline Fetching
+########################################################
 def fetch_recent_headlines(asset_symbol, num_articles=5):
     url = "https://newsapi.org/v2/everything"
     params = {
@@ -82,7 +172,9 @@ def fetch_recent_headlines(asset_symbol, num_articles=5):
     except Exception as e:
         return [f"Error fetching headlines: {str(e)}"]
 
-
+########################################################
+# Sentiment classification with GPT
+########################################################
 def classify_news_sentiment_with_gpt(headlines):
     prompt = (
         "Classify the following financial news headlines as Positive, Neutral, or Negative. "
@@ -99,43 +191,46 @@ def classify_news_sentiment_with_gpt(headlines):
     ]
 
     try:
-        client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-        completion = client.chat.completions.create(
-            model="gpt-3.5-turbo",
+        completion = openai.ChatCompletion.create(
+            model="gpt-4o-mini",
             messages=messages
         )
         return completion.choices[0].message.content
     except Exception as e:
         return f"Error generating sentiment summary: {str(e)}"
 
-
+########################################################
+# Replace yfinance-based get_price_metrics with Alpha Vantage
+########################################################
+@rate_limit_handler
 def get_price_metrics(ticker):
-    try:
-        df = yf.download(ticker, period="2mo", interval="1d")
-        print("Downloaded DataFrame shape:", df.shape)
-        print("Columns returned:", df.columns)
-        print("First few rows:", df.head())
-        if isinstance(df.columns, pd.MultiIndex):
-            df.columns = [col[0] for col in df.columns]
-        if 'Close' not in df.columns:
-            raise ValueError("'Close' not found in yfinance response. Check ticker or try again later.")
-        if df.empty:
-            raise ValueError("No data returned from yfinance.")
-        df["returns"] = df["Close"].pct_change()
+    # Fetch ~2 months of daily data from Alpha Vantage
+    df = fetch_alpha_data(ticker, period="2mo")
+    if 'Close' not in df.columns or df.empty:
+        raise ValueError("'Close' column missing or no data returned from Alpha Vantage.")
 
-        current_price = df["Close"].iloc[-1]
-        peak_price = df["Close"].max()
-        drawdown_pct = (current_price - peak_price) / peak_price
+    df["returns"] = df["Close"].pct_change()
 
-        volatility_30d = df["returns"].rolling(30).std().iloc[-1] * np.sqrt(252)
-        volatility_7d = df["returns"].rolling(7).std().iloc[-1] * np.sqrt(252)
+    current_price = df["Close"].iloc[-1]
+    peak_price = df["Close"].max()
+    drawdown_pct = (current_price - peak_price) / peak_price if peak_price != 0 else 0
+
+    # 30-day volatility
+    volatility_30d = df["returns"].rolling(30).std().iloc[-1] * np.sqrt(252) if len(df) >= 30 else np.nan
+    # 7-day volatility
+    volatility_7d = df["returns"].rolling(7).std().iloc[-1] * np.sqrt(252) if len(df) >= 7 else np.nan
+
+    # 1-week momentum
+    if len(df) >= 6:
         momentum_1w = (df["Close"].iloc[-1] - df["Close"].iloc[-6]) / df["Close"].iloc[-6]
+    else:
+        momentum_1w = 0.0
 
-        return drawdown_pct, volatility_30d, volatility_7d, momentum_1w
-    except Exception as e:
-        raise RuntimeError(f"Failed to compute price metrics: {str(e)}")
+    return drawdown_pct, volatility_30d, volatility_7d, momentum_1w
 
-
+########################################################
+# Main Forecast Endpoint
+########################################################
 @app.route('/forecast', methods=['POST'])
 def forecast():
     user_input = request.get_json()
@@ -144,30 +239,28 @@ def forecast():
     if not asset_symbol:
         return jsonify({"error": "asset_symbol is required"}), 400
 
-    print(f"Forecast request received for: {asset_symbol}")
     try:
-        drawdown, volatility, volatility_7d, momentum_1w = get_price_metrics(asset_symbol)
+        drawdown, volatility_30d, volatility_7d, momentum_1w = get_price_metrics(asset_symbol)
     except Exception as e:
         print(f"Error in get_price_metrics: {e}")
         return jsonify({"error": f"Failed to compute price metrics: {str(e)}"}), 500
-    print(f"Drawdown: {drawdown:.4f}, Volatility: {volatility:.4f}, Vol 7d: {volatility_7d:.4f}, Momentum: {momentum_1w:.4f}")
 
     # Load reference class and fit nearest neighbors model
     df = load_reference_class()
     if df.empty or 'drawdown_pct' not in df.columns:
         return jsonify({"error": "Reference class data could not be loaded. Please try again later."}), 503
+
     X = df[['drawdown_pct', 'volatility_30d']]
     nn_model = NearestNeighbors(n_neighbors=3)
     nn_model.fit(X)
-    distances, indices = nn_model.kneighbors([[drawdown, volatility]])
+    distances, indices = nn_model.kneighbors([[drawdown, volatility_30d]])
     similar_cases = df.iloc[indices[0]]
-    print(f"Matched reference cases: {len(similar_cases)}")
 
     avg_recovery = similar_cases['recovery_months'].mean()
     rebound_prob = similar_cases['rebounded'].mean()
     avg_time_to_recovery = similar_cases['time_to_recovery'].mean()
 
-    vol_spike_ratio = volatility_7d / volatility if volatility else None
+    vol_spike_ratio = (volatility_7d / volatility_30d) if (volatility_30d and not np.isnan(volatility_30d)) else None
     momentum_signal = 'positive' if momentum_1w > 0 else 'negative' if momentum_1w < 0 else 'neutral'
 
     headlines = fetch_recent_headlines(asset_symbol)
@@ -175,16 +268,16 @@ def forecast():
 
     response = {
         'matched_cases': similar_cases.to_dict(orient='records'),
-        'average_recovery_time_months': round(avg_recovery, 2),
-        'historical_rebound_probability': round(rebound_prob, 2),
-        'drawdown_pct': round(drawdown, 4),
-        'volatility_30d': round(volatility, 4),
-        'volatility_7d': round(volatility_7d, 4),
+        'average_recovery_time_months': round(avg_recovery, 2) if not np.isnan(avg_recovery) else None,
+        'historical_rebound_probability': round(rebound_prob, 2) if not np.isnan(rebound_prob) else None,
+        'drawdown_pct': round(drawdown, 4) if not np.isnan(drawdown) else None,
+        'volatility_30d': round(volatility_30d, 4) if volatility_30d is not None else None,
+        'volatility_7d': round(volatility_7d, 4) if volatility_7d is not None else None,
         'momentum_1w': round(momentum_1w, 4),
         'momentum_signal': momentum_signal,
-        'volatility_spike_ratio': round(vol_spike_ratio, 2) if vol_spike_ratio is not None else None,
+        'volatility_spike_ratio': round(vol_spike_ratio, 2) if vol_spike_ratio else None,
         'news_sentiment_summary': sentiment_summary,
-        'average_time_to_recovery_months': round(avg_time_to_recovery, 2)
+        'average_time_to_recovery_months': round(avg_time_to_recovery, 2) if not np.isnan(avg_time_to_recovery) else None
     }
     return jsonify(response)
 
