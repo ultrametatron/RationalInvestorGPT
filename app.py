@@ -22,6 +22,14 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 openai.api_key = OPENAI_API_KEY
 ALPHA_VANTAGE_KEY = os.getenv("ALPHA_VANTAGE_KEY")
 
+# Caching Configuration
+cache_storage = {}
+CACHE_EXPIRY_SECONDS = 900  # 15 minutes cache expiry
+
+def get_cache_key(ticker, period):
+    return f"{ticker}:{period}"
+
+
 # Initialize Alpha Vantage
 ts = TimeSeries(key=ALPHA_VANTAGE_KEY, output_format='pandas')
 
