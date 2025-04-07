@@ -1,5 +1,5 @@
 # RationalInvestorGPT: Behavioral Forecasting API with News Sentiment and Live Price Data
-# Entirely uses UNADJUSTED daily from Alpha Vantage to avoid premium endpoints.
+# Combines Alpha Vantage for short-term, yfinance for 5-year reference class.
 
 import pandas as pd
 import numpy as np
@@ -8,6 +8,7 @@ from flask import Flask, request, jsonify
 import requests
 import openai
 from alpha_vantage.timeseries import TimeSeries
+import yfinance as yf  # New: we add yfinance
 import time
 import os
 import datetime
@@ -46,40 +47,34 @@ def rate_limit_handler(func):
     return wrapper
 
 ########################################################
-# Create a single TimeSeries client for UNADJUSTED data
+# Create a single TimeSeries client for short-term data
 ########################################################
 ts_unadj = TimeSeries(key=ALPHA_VANTAGE_KEY, output_format='pandas')
 
 ########################################################
-# Unified function to fetch data (UNADJUSTED) via Alpha Vantage
+# Unified function to fetch short-term (2mo) data from Alpha Vantage
 ########################################################
 @rate_limit_handler
-def fetch_alpha_data(ticker: str, period: str = '2mo') -> pd.DataFrame:
+def fetch_alpha_data(ticker: str) -> pd.DataFrame:
     """
-    Fetch daily UNADJUSTED data from Alpha Vantage.
-    - If period == '5y', we use outputsize='full'.
-    - Otherwise, outputsize='compact'.
-    This avoids premium endpoints entirely.
+    Fetch daily UNADJUSTED data from Alpha Vantage for about 2 months.
+    Avoids premium endpoints by only using 'compact' outputsize.
 
     Returns a DataFrame with columns: ['Open','High','Low','Close','Volume'].
     Caches results for CACHE_EXPIRY_SECONDS.
     """
-    # 1) Check if data is cached
-    cache_key = get_cache_key(ticker, period)
+    cache_key = get_cache_key(ticker, "2mo")
     cached_entry = cache_storage.get(cache_key)
     now = datetime.datetime.utcnow()
+
+    # Check cache
     if cached_entry:
         df_cached, timestamp = cached_entry
         if (now - timestamp).total_seconds() < CACHE_EXPIRY_SECONDS:
             return df_cached
 
-    # 2) Decide which outputsize to call
-    if period == '5y':
-        data, meta_data = ts_unadj.get_daily(symbol=ticker, outputsize='full')
-    else:
-        data, meta_data = ts_unadj.get_daily(symbol=ticker, outputsize='compact')
-
-    # 3) Convert to DataFrame and rename columns
+    # If not in cache or expired, fetch from Alpha Vantage
+    data, meta_data = ts_unadj.get_daily(symbol=ticker, outputsize='compact')
     df = data.copy()
     df.rename(columns={
         '1. open': 'Open',
@@ -92,20 +87,26 @@ def fetch_alpha_data(ticker: str, period: str = '2mo') -> pd.DataFrame:
     df.index = pd.to_datetime(df.index)
     df.sort_index(inplace=True)
 
-    # 4) Store in cache
+    # Store in cache
     cache_storage[cache_key] = (df, now)
     return df
 
 ########################################################
-# Reference Class Loading using Alpha Vantage (UNADJUSTED)
+# Reference Class Loading using yfinance for 5-year data
 ########################################################
 def load_reference_class() -> pd.DataFrame:
+    """
+    Downloads 5-year daily data for SPY using yfinance.
+    Then applies the reference class computations:
+    rolling drawdown, volatility, momentum, etc.
+    """
     global reference_df
     if reference_df is not None:
         return reference_df
 
-    # For 5-year daily data, we call fetch_alpha_data with '5y'
-    df = fetch_alpha_data('SPY', period='5y')
+    # Download 5-year daily data from yfinance
+    df = yf.download("SPY", period="5y", interval="1d")  # 1d daily
+
     # If 'Close' missing, return empty DataFrame
     if 'Close' not in df.columns or df.empty:
         reference_df = pd.DataFrame()
@@ -134,7 +135,8 @@ def load_reference_class() -> pd.DataFrame:
     df['recovery_months'] = np.where(df['rebounded'] == 1, 3, 6)
 
     # Keep only needed columns
-    reference_df = df[['drawdown_pct', 'volatility_30d', 'volatility_7d', 'momentum_1w', 'rebounded', 'recovery_months', 'time_to_recovery']].dropna()
+    reference_df = df[['drawdown_pct', 'volatility_30d', 'volatility_7d', 'momentum_1w', 'rebounded',
+                       'recovery_months', 'time_to_recovery']].dropna()
 
     return reference_df
 
@@ -145,7 +147,7 @@ app = Flask(__name__)
 
 @app.route('/')
 def home():
-    return "RationalInvestorGPT API (Alpha Vantage, UNADJUSTED) is live. Use POST /forecast with an asset_symbol."
+    return "RationalInvestorGPT API: AV for short-term, yfinance for 5-year reference class."
 
 ########################################################
 # News Headline Fetching (Multi-Language + Recency)
@@ -222,12 +224,15 @@ def classify_news_sentiment_with_gpt(headlines_info):
         return f"Error generating sentiment summary: {str(e)}"
 
 ########################################################
-# get_price_metrics using UNADJUSTED Alpha Vantage
+# get_price_metrics using short-term Alpha Vantage
 ########################################################
 @rate_limit_handler
 def get_price_metrics(ticker):
-    # For ~2 months of data, 'compact' is enough
-    df = fetch_alpha_data(ticker, period="2mo")
+    """
+    Uses Alpha Vantage unadjusted daily (compact) to fetch ~2mo of data.
+    Then calculates basic drawdown, volatility, momentum for the forecast endpoint.
+    """
+    df = fetch_alpha_data(ticker)
     if 'Close' not in df.columns or df.empty:
         raise ValueError("'Close' column missing or no data returned from Alpha Vantage.")
 
@@ -237,9 +242,15 @@ def get_price_metrics(ticker):
     drawdown_pct = (current_price - peak_price) / peak_price if peak_price != 0 else 0
 
     # 30-day volatility
-    volatility_30d = df["returns"].rolling(30).std().iloc[-1] * np.sqrt(252) if len(df) >= 30 else np.nan
+    volatility_30d = (
+        df["returns"].rolling(30).std().iloc[-1] * np.sqrt(252)
+        if len(df) >= 30 else np.nan
+    )
     # 7-day volatility
-    volatility_7d = df["returns"].rolling(7).std().iloc[-1] * np.sqrt(252) if len(df) >= 7 else np.nan
+    volatility_7d = (
+        df["returns"].rolling(7).std().iloc[-1] * np.sqrt(252)
+        if len(df) >= 7 else np.nan
+    )
 
     # 1-week momentum
     if len(df) >= 6:
@@ -265,7 +276,7 @@ def forecast():
         print(f"Error in get_price_metrics: {e}")
         return jsonify({"error": f"Failed to compute price metrics: {str(e)}"}), 500
 
-    # Load reference class and fit nearest neighbors model
+    # Load reference class (5 years) from yfinance + do nearest neighbors
     df = load_reference_class()
     if df.empty or 'drawdown_pct' not in df.columns:
         return jsonify({"error": "Reference class data could not be loaded. Please try again later."}), 503
@@ -283,6 +294,7 @@ def forecast():
     vol_spike_ratio = (volatility_7d / volatility_30d) if (volatility_30d and not np.isnan(volatility_30d)) else None
     momentum_signal = 'positive' if momentum_1w > 0 else 'negative' if momentum_1w < 0 else 'neutral'
 
+    # Summarize recent news
     headlines_info = fetch_recent_headlines(asset_symbol, languages=['en','fr','de','ja'], num_articles=5)
     sentiment_summary = classify_news_sentiment_with_gpt(headlines_info)
 
@@ -300,7 +312,6 @@ def forecast():
         'average_time_to_recovery_months': round(avg_time_to_recovery, 2) if not np.isnan(avg_time_to_recovery) else None
     }
     return jsonify(response)
-
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)
