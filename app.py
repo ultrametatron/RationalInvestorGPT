@@ -146,6 +146,18 @@ def load_reference_class() -> pd.DataFrame:
 
     return reference_df
 
+@rate_limit_handler
+def get_price_metrics(ticker):
+    df = fetch_alpha_data(ticker)
+    df["returns"] = df["Close"].pct_change()
+    current_price = df["Close"].iloc[-1]
+    peak_price = df["Close"].max()
+    drawdown_pct = (current_price - peak_price) / peak_price if peak_price != 0 else 0
+    volatility_30d = df["returns"].rolling(30).std().iloc[-1] * np.sqrt(252)
+    volatility_7d = df["returns"].rolling(7).std().iloc[-1] * np.sqrt(252)
+    momentum_1w = df["Close"].pct_change(periods=5).iloc[-1]
+    return drawdown_pct, volatility_30d, volatility_7d, momentum_1w
+
 
 ########################################################
 # Flask Application
