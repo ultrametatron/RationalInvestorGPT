@@ -275,11 +275,12 @@ def classify_news_sentiment_with_gpt(headlines_info):
 ########################################################
 @app.route('/forecast', methods=['POST'])
 def forecast():
+    news_sentiment_summary = classify_news_sentiment_with_gpt(headlines_info)
     user_input = request.get_json()
     asset_symbol = user_input.get('asset_symbol')
     if not asset_symbol:
         return jsonify({"error": "asset_symbol is required"}), 400
-
+    
     try:
         drawdown, volatility_30d, volatility_7d, momentum_1w = get_price_metrics(asset_symbol)
     except Exception as e:
@@ -305,7 +306,7 @@ def forecast():
     momentum_signal = 'positive' if momentum_1w > 0 else 'negative' if momentum_1w < 0 else 'neutral'
 
     # Summarize recent news
-    headlines_info = fetch_recent_headlines(asset_symbol, languages=['en'], num_articles=15)
+    headlines_info = fetch_recent_headlines(asset_symbol, languages=['en','fr','de','ja'], num_articles=5)
     sentiment_summary = classify_news_sentiment_with_gpt(headlines_info)
 
     response = {
