@@ -203,8 +203,7 @@ def classify_news_sentiment_with_gpt(headlines_info):
         return "No headlines found."
 
     prompt = (
-        "We have financial news headlines in multiple languages. "
-        "Please translate non-English headlines into English if needed, then classify each headline as Positive, Neutral, or Negative. "
+        "You are a financial sentiment analyst. "
         "Weigh more recent headlines (lower 'days_ago') more heavily in forming an overall sentiment. "
         "At the end, provide a short summary line with an overall sentiment score from -1 to +1 (e.g., 'Overall score: +0.3').\n\n"
     )
