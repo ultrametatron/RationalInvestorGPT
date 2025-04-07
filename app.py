@@ -145,6 +145,7 @@ def fetch_recent_headlines(asset_symbol, languages=['en'], num_articles=10):
             response = requests.get(url, params=params)
             response.raise_for_status()
             articles = response.json().get("articles", [])
+            print(f"Fetched {len(articles)} articles for {asset_symbol} in {lang}")  # Debugging
             for article in articles:
                 title = article.get("title")
                 published_at_str = article.get("publishedAt")
@@ -152,7 +153,8 @@ def fetch_recent_headlines(asset_symbol, languages=['en'], num_articles=10):
                     published_dt = datetime.datetime.fromisoformat(published_at_str.replace('Z', '+00:00'))
                     days_ago = (datetime.datetime.utcnow() - published_dt).days
                     all_headlines.append((title, published_dt, days_ago, lang))
-        except:
+        except Exception as e:
+            print(f"Error fetching headlines: {e}")  # Debugging
             continue
 
     all_headlines.sort(key=lambda x: x[2])
@@ -169,9 +171,7 @@ def classify_news_sentiment_with_gpt(headlines_info):
         recency_label = "RECENT" if days_ago <= 2 else "OLDER"
         prompt += f"[{lang.upper()}, {recency_label}, {days_ago} days ago]: {title}\n"
 
-    client = openai.OpenAI(api_key=OPENAI_API_KEY)
-
-    completion = client.chat.completions.create(model="gpt-4", messages=[{"role": "user", "content": prompt}])
+    completion = openai.ChatCompletion.create(model="gpt-4o-mini", messages=[{"role": "user", "content": prompt}])
     return completion.choices[0].message.content
 
 # Calculate Price Metrics
