@@ -1,6 +1,5 @@
-# RationalInvestorGPT: Behavioral Forecasting API with News Sentiment and Live Price Data (Alpha Vantage)
-# Completely removed yfinance references and replaced them with Alpha Vantage.
-# Preserves original logic, macros, and structure.
+# RationalInvestorGPT: Behavioral Forecasting API with News Sentiment and Live Price Data
+# Entirely uses UNADJUSTED daily from Alpha Vantage to avoid premium endpoints.
 
 import pandas as pd
 import numpy as np
@@ -24,6 +23,7 @@ ALPHA_VANTAGE_KEY = os.getenv("ALPHA_VANTAGE_KEY")
 # Simple caching dictionary & config
 cache_storage = {}
 CACHE_EXPIRY_SECONDS = 900  # 15 minutes
+
 def get_cache_key(ticker, period):
     return f"{ticker}:{period}"
 
@@ -46,26 +46,24 @@ def rate_limit_handler(func):
     return wrapper
 
 ########################################################
-# Create two separate TimeSeries clients:
-# 1) ts_unadj -> unadjusted daily
-# 2) ts_adj -> adjusted daily
+# Create a single TimeSeries client for UNADJUSTED data
 ########################################################
 ts_unadj = TimeSeries(key=ALPHA_VANTAGE_KEY, output_format='pandas')
-ts_adj   = TimeSeries(key=ALPHA_VANTAGE_KEY, output_format='pandas')
 
 ########################################################
-# Unified function to fetch data via Alpha Vantage
+# Unified function to fetch data (UNADJUSTED) via Alpha Vantage
 ########################################################
 @rate_limit_handler
 def fetch_alpha_data(ticker: str, period: str = '2mo') -> pd.DataFrame:
     """
-    Fetch daily historical data from Alpha Vantage.
-    
-    If period == '5y', use unadjusted daily (full) to avoid the premium endpoint on adjusted data.
-    Otherwise, default to daily_adjusted with 'compact' or 'full' as needed.
+    Fetch daily UNADJUSTED data from Alpha Vantage.
+    - If period == '5y', we use outputsize='full'.
+    - Otherwise, outputsize='compact'.
+    This avoids premium endpoints entirely.
+
+    Returns a DataFrame with columns: ['Open','High','Low','Close','Volume'].
     Caches results for CACHE_EXPIRY_SECONDS.
     """
-
     # 1) Check if data is cached
     cache_key = get_cache_key(ticker, period)
     cached_entry = cache_storage.get(cache_key)
@@ -75,17 +73,11 @@ def fetch_alpha_data(ticker: str, period: str = '2mo') -> pd.DataFrame:
         if (now - timestamp).total_seconds() < CACHE_EXPIRY_SECONDS:
             return df_cached
 
-    # 2) Decide which endpoint to call
+    # 2) Decide which outputsize to call
     if period == '5y':
-        # Use unadjusted daily with 'full' (should avoid premium error)
         data, meta_data = ts_unadj.get_daily(symbol=ticker, outputsize='full')
     else:
-        # For shorter data, let's use daily_adjusted
-        # If you only need ~2 months, let's do 'compact'; otherwise 'full' if you have other custom periods
-        if period == '2mo':
-            data, meta_data = ts_adj.get_daily_adjusted(symbol=ticker, outputsize='compact')
-        else:
-            data, meta_data = ts_adj.get_daily_adjusted(symbol=ticker, outputsize='full')
+        data, meta_data = ts_unadj.get_daily(symbol=ticker, outputsize='compact')
 
     # 3) Convert to DataFrame and rename columns
     df = data.copy()
@@ -94,8 +86,7 @@ def fetch_alpha_data(ticker: str, period: str = '2mo') -> pd.DataFrame:
         '2. high': 'High',
         '3. low': 'Low',
         '4. close': 'Close',
-        '5. adjusted close': 'Adj Close',
-        '6. volume': 'Volume',
+        '5. volume': 'Volume',
     }, inplace=True)
 
     df.index = pd.to_datetime(df.index)
@@ -106,7 +97,7 @@ def fetch_alpha_data(ticker: str, period: str = '2mo') -> pd.DataFrame:
     return df
 
 ########################################################
-# Reference Class Loading using Alpha Vantage
+# Reference Class Loading using Alpha Vantage (UNADJUSTED)
 ########################################################
 def load_reference_class() -> pd.DataFrame:
     global reference_df
@@ -154,7 +145,7 @@ app = Flask(__name__)
 
 @app.route('/')
 def home():
-    return "RationalInvestorGPT API (Alpha Vantage) is live. Use POST /forecast with an asset_symbol."
+    return "RationalInvestorGPT API (Alpha Vantage, UNADJUSTED) is live. Use POST /forecast with an asset_symbol."
 
 ########################################################
 # News Headline Fetching (Multi-Language + Recency)
@@ -231,11 +222,12 @@ def classify_news_sentiment_with_gpt(headlines_info):
         return f"Error generating sentiment summary: {str(e)}"
 
 ########################################################
-# get_price_metrics using Alpha Vantage
+# get_price_metrics using UNADJUSTED Alpha Vantage
 ########################################################
 @rate_limit_handler
 def get_price_metrics(ticker):
-    df = fetch_alpha_data(ticker, period="2mo")  # ~2 months
+    # For ~2 months of data, 'compact' is enough
+    df = fetch_alpha_data(ticker, period="2mo")
     if 'Close' not in df.columns or df.empty:
         raise ValueError("'Close' column missing or no data returned from Alpha Vantage.")
 
@@ -278,7 +270,7 @@ def forecast():
     if df.empty or 'drawdown_pct' not in df.columns:
         return jsonify({"error": "Reference class data could not be loaded. Please try again later."}), 503
 
-    X = df[['drawdown_pct', 'volatility_30d']]
+    X = df[["drawdown_pct", "volatility_30d"]]
     nn_model = NearestNeighbors(n_neighbors=3)
     nn_model.fit(X)
     distances, indices = nn_model.kneighbors([[drawdown, volatility_30d]])
