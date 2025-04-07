@@ -231,8 +231,6 @@ def classify_news_sentiment_with_gpt(headlines_info):
 
 return completion.choices[0].message.content
 
-        )
-        return completion.choices[0].message.content
     except Exception as e:
         return f"Error generating sentiment summary: {str(e)}"
 
