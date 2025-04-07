@@ -1,6 +1,4 @@
-# RationalInvestorGPT: Behavioral Forecasting API with News Sentiment and Live Price Data (Alpha Vantage)
-# Completely removed yfinance references and replaced them with Alpha Vantage.
-# Preserves original logic, macros, and structure.
+# RationalInvestorGPT: Behavioral Forecasting API integrating Alpha Vantage (short-term) and yfinance (reference class)
 
 import pandas as pd
 import numpy as np
@@ -13,7 +11,6 @@ import time
 import os
 import datetime
 import yfinance as yf
-
 from dotenv import load_dotenv
 
 # Load environment variables
@@ -25,86 +22,58 @@ ALPHA_VANTAGE_KEY = os.getenv("ALPHA_VANTAGE_KEY")
 
 # Caching Configuration
 cache_storage = {}
-CACHE_EXPIRY_SECONDS = 900  # 15 minutes cache expiry
+CACHE_EXPIRY_SECONDS = 900
 
 def get_cache_key(ticker, period):
     return f"{ticker}:{period}"
 
-
 # Initialize Alpha Vantage
 ts = TimeSeries(key=ALPHA_VANTAGE_KEY, output_format='pandas')
 
-# We'll maintain a global reference_df for the reference class analysis
+# Reference class DataFrame
 reference_df = None
 
-########################################################
-# Rate-limit handling decorator for Alpha Vantage calls
-########################################################
+# Rate-limit handler decorator
 def rate_limit_handler(func):
     def wrapper(*args, **kwargs):
         try:
             return func(*args, **kwargs)
         except ValueError as e:
             if 'API call frequency' in str(e):
-                time.sleep(15)  # Wait 15 seconds and retry
+                time.sleep(15)
                 return func(*args, **kwargs)
             else:
                 raise e
     return wrapper
 
-########################################################
-# Unified function to fetch data via Alpha Vantage
-# period is a user-friendly param that we map to outputsize.
-########################################################
 @rate_limit_handler
 def fetch_alpha_data(ticker: str, period: str = '2mo') -> pd.DataFrame:
-    """
-    Fetch daily historical data from Alpha Vantage.
-    period: '2mo' or '5y' etc. (mapped to 'compact' or 'full')
-    Returns: DataFrame with columns: 'Open', 'High', 'Low', 'Close', 'Adj Close', 'Volume'
-    """
-    # Decide outputsize based on period
-    if period == '2mo':
-        outputsize = 'compact'
-    else:
-        outputsize = 'full'
-    
-    # Check cache first
+    outputsize = 'compact' if period == '2mo' else 'full'
     cache_key = get_cache_key(ticker, period)
     cached_entry = cache_storage.get(cache_key)
     now = datetime.datetime.utcnow()
 
-    # If cached data exists and not expired
     if cached_entry:
         df_cached, timestamp = cached_entry
         if (now - timestamp).total_seconds() < CACHE_EXPIRY_SECONDS:
             return df_cached
 
-    # Fetch fresh data
-    data, meta_data = ts.get_daily_adjusted(symbol=ticker, outputsize=outputsize)
+    data, meta_data = ts.get_daily(symbol=ticker, outputsize=outputsize)
     df = data.copy()
 
-    # Rename columns
     df.rename(columns={
         '1. open': 'Open',
         '2. high': 'High',
         '3. low': 'Low',
         '4. close': 'Close',
-        '5. adjusted close': 'Adj Close',
-        '6. volume': 'Volume',
+        '5. volume': 'Volume',
     }, inplace=True)
 
     df.index = pd.to_datetime(df.index)
     df.sort_index(inplace=True)
-
-    # Store in cache
     cache_storage[cache_key] = (df, now)
     return df
 
-
-########################################################
-# Reference Class Loading using Alpha Vantage
-########################################################
 def load_reference_class(asset_symbol: str = 'SPY') -> pd.DataFrame:
     global reference_df
     if reference_df is not None and asset_symbol == 'SPY':
@@ -138,11 +107,17 @@ def load_reference_class(asset_symbol: str = 'SPY') -> pd.DataFrame:
     final_df = df[['drawdown_pct', 'volatility_30d', 'volatility_7d', 'momentum_1w',
                    'rebounded', 'recovery_months', 'time_to_recovery']].dropna()
 
-    # Cache SPY as global reference
     if asset_symbol == 'SPY':
         reference_df = final_df
 
     return final_df
+
+# Flask Application
+app = Flask(__name__)
+
+@app.route('/')
+def home():
+    return "RationalInvestorGPT API is live. Use POST /forecast with an asset_symbol."
 
 
 ########################################################
