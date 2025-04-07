@@ -1,9 +1,8 @@
-alpha_vantage
-sklearn
-flask
+Flask
+requests
 pandas
 numpy
-scikit-learn
-requests
-openai
 python-dotenv
+openai
+alpha_vantage
+scikit-learn
