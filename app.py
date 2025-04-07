@@ -102,59 +102,50 @@ def load_reference_class() -> pd.DataFrame:
     # Download 5-year daily data from yfinance
     df_raw = yf.download("SPY", period="5y", interval="1d")  # might be multi-level
 
-    # If 'Close' missing, return empty DataFrame
+    # If 'Close' missing or empty, bail out
     if 'Close' not in df_raw.columns or df_raw.empty:
         reference_df = pd.DataFrame()
         return reference_df
 
-    # Extract just the Close column as a single-column DataFrame
-    # This ensures a normal 1D Series for 'Close'
-   df_raw = yf.download("SPY", period="5y", interval="1d")
+    # Extract the 'Close' part
+    close_data = df_raw['Close']
 
-# If 'Close' missing or empty, bail out
-if 'Close' not in df_raw.columns or df_raw.empty:
-    reference_df = pd.DataFrame()
+    # If 'close_data' is 2D, pick just the first column
+    if close_data.ndim == 2:
+        close_data = close_data.iloc[:, 0]  # pick the first column
+
+    # Now build a clean DataFrame with a single 'Close' column
+    df = pd.DataFrame({'Close': close_data})
+
+    # Proceed with rolling calculations
+    df['returns'] = df['Close'].pct_change()
+    df['rolling_max'] = df['Close'].rolling(window=252, min_periods=1).max()
+    df['drawdown_pct'] = (df['Close'] - df['rolling_max']) / df['rolling_max']
+    df['volatility_30d'] = df['returns'].rolling(30).std() * np.sqrt(252)
+    df['volatility_7d'] = df['returns'].rolling(7).std() * np.sqrt(252)
+    df['momentum_1w'] = df['Close'].pct_change(periods=5)
+    df['forward_return_3mo'] = df['Close'].pct_change(periods=63).shift(-63)
+
+    df['time_to_recovery'] = np.nan
+    for i in range(len(df)):
+        current_price = df['Close'].iloc[i]
+        for j in range(i + 1, len(df)):
+            if df['Close'].iloc[j] >= current_price:
+                df.at[df.index[i], 'time_to_recovery'] = (df.index[j] - df.index[i]).days / 30.0
+                break
+
+    df = df.dropna(subset=['forward_return_3mo', 'time_to_recovery'])
+    df['rebounded'] = (df['forward_return_3mo'] > 0).astype(int)
+    df['recovery_months'] = np.where(df['rebounded'] == 1, 3, 6)
+
+    reference_df = df[[
+        'drawdown_pct', 'volatility_30d', 'volatility_7d',
+        'momentum_1w', 'rebounded', 'recovery_months',
+        'time_to_recovery'
+    ]].dropna()
+
     return reference_df
 
-# Extract the 'Close' part
-close_data = df_raw['Close']
-
-# If 'close_data' is 2D, we pick just the first column
-# (sometimes yfinance returns multi-column DataFrame for 'Close')
-if close_data.ndim == 2:  # i.e., shape like (rows, columns)
-    close_data = close_data.iloc[:, 0]  # pick the first column
-
-# Now build a clean DataFrame with a single 'Close' column
-df = pd.DataFrame({'Close': close_data})
-
-# Proceed with your rolling calculations
-df['returns'] = df['Close'].pct_change()
-df['rolling_max'] = df['Close'].rolling(window=252, min_periods=1).max()
-df['drawdown_pct'] = (df['Close'] - df['rolling_max']) / df['rolling_max']
-df['volatility_30d'] = df['returns'].rolling(30).std() * np.sqrt(252)
-df['volatility_7d'] = df['returns'].rolling(7).std() * np.sqrt(252)
-df['momentum_1w'] = df['Close'].pct_change(periods=5)
-df['forward_return_3mo'] = df['Close'].pct_change(periods=63).shift(-63)
-
-df['time_to_recovery'] = np.nan
-for i in range(len(df)):
-    current_price = df['Close'].iloc[i]
-    for j in range(i + 1, len(df)):
-        if df['Close'].iloc[j] >= current_price:
-            df.at[df.index[i], 'time_to_recovery'] = (df.index[j] - df.index[i]).days / 30.0
-            break
-
-df = df.dropna(subset=['forward_return_3mo', 'time_to_recovery'])
-df['rebounded'] = (df['forward_return_3mo'] > 0).astype(int)
-df['recovery_months'] = np.where(df['rebounded'] == 1, 3, 6)
-
-reference_df = df[[
-    'drawdown_pct', 'volatility_30d', 'volatility_7d',
-    'momentum_1w', 'rebounded', 'recovery_months',
-    'time_to_recovery'
-]].dropna()
-
-return reference_df
 
 
 
