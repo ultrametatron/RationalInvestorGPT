@@ -95,24 +95,23 @@ def fetch_alpha_data(ticker: str) -> pd.DataFrame:
 # Reference Class Loading using yfinance for 5-year data
 ########################################################
 def load_reference_class() -> pd.DataFrame:
-    """
-    Downloads 5-year daily data for SPY using yfinance.
-    Then applies the reference class computations:
-    rolling drawdown, volatility, momentum, etc.
-    """
     global reference_df
     if reference_df is not None:
         return reference_df
 
     # Download 5-year daily data from yfinance
-    df = yf.download("SPY", period="5y", interval="1d")  # 1d daily
+    df_raw = yf.download("SPY", period="5y", interval="1d")  # might be multi-level
 
     # If 'Close' missing, return empty DataFrame
-    if 'Close' not in df.columns or df.empty:
+    if 'Close' not in df_raw.columns or df_raw.empty:
         reference_df = pd.DataFrame()
         return reference_df
 
-    # Compute rolling metrics
+    # Extract just the Close column as a single-column DataFrame
+    # This ensures a normal 1D Series for 'Close'
+    df = df_raw['Close'].to_frame()  # now df has only 1 column named 'Close'
+
+    # Compute rolling metrics on df['Close']
     df['returns'] = df['Close'].pct_change()
     df['rolling_max'] = df['Close'].rolling(window=252, min_periods=1).max()
     df['drawdown_pct'] = (df['Close'] - df['rolling_max']) / df['rolling_max']
@@ -121,7 +120,6 @@ def load_reference_class() -> pd.DataFrame:
     df['momentum_1w'] = df['Close'].pct_change(periods=5)
     df['forward_return_3mo'] = df['Close'].pct_change(periods=63).shift(-63)
 
-    # Compute time to recovery
     df['time_to_recovery'] = np.nan
     for i in range(len(df)):
         current_price = df['Close'].iloc[i]
@@ -135,10 +133,12 @@ def load_reference_class() -> pd.DataFrame:
     df['recovery_months'] = np.where(df['rebounded'] == 1, 3, 6)
 
     # Keep only needed columns
-    reference_df = df[['drawdown_pct', 'volatility_30d', 'volatility_7d', 'momentum_1w', 'rebounded',
-                       'recovery_months', 'time_to_recovery']].dropna()
+    reference_df = df[['drawdown_pct', 'volatility_30d', 'volatility_7d',
+                       'momentum_1w', 'rebounded', 'recovery_months',
+                       'time_to_recovery']].dropna()
 
     return reference_df
+
 
 ########################################################
 # Flask Application
