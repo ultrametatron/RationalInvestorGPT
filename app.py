@@ -159,7 +159,7 @@ def home():
 ########################################################
 # News Headline Fetching (Multi-Language + Recency)
 ########################################################
-def fetch_recent_headlines(asset_symbol, languages=['en','fr', 'de', 'ja'], num_articles=5):
+def fetch_recent_headlines(asset_symbol, languages=['en'], num_articles=10):
     """
     Fetch recent headlines in multiple languages from NewsAPI,
     capturing publishedAt for recency weighting.
@@ -214,7 +214,7 @@ def classify_news_sentiment_with_gpt(headlines_info):
         prompt += f"- [{lang.upper()}, {recency_label}, {days_ago} days ago]: {title}\n"
 
     messages = [
-        {"role": "system", "content": "You are a multilingual financial sentiment analyst."},
+        {"role": "system", "content": "You are a financial sentiment analyst."},
         {"role": "user", "content": prompt}
     ]
 
@@ -222,7 +222,7 @@ def classify_news_sentiment_with_gpt(headlines_info):
         client = openai.OpenAI(api_key=OPENAI_API_KEY)
 
         completion = client.chat.completions.create(
-            model="gpt-4",
+            model="gpt-4o-mini",
             messages=messages
         )
 
@@ -304,7 +304,7 @@ def forecast():
     momentum_signal = 'positive' if momentum_1w > 0 else 'negative' if momentum_1w < 0 else 'neutral'
 
     # Summarize recent news
-    headlines_info = fetch_recent_headlines(asset_symbol, languages=['en','fr','de','ja'], num_articles=5)
+    headlines_info = fetch_recent_headlines(asset_symbol, languages=['en'], num_articles=10)
     sentiment_summary = classify_news_sentiment_with_gpt(headlines_info)
 
     response = {
