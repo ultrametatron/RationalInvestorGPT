@@ -27,10 +27,6 @@ CACHE_EXPIRY_SECONDS = 900  # 15 minutes
 def get_cache_key(ticker, period):
     return f"{ticker}:{period}"
 
-# Initialize Alpha Vantage
-ts = TimeSeries(key=ALPHA_VANTAGE_KEY, output_format='pandas')
-...
-
 
 # We'll maintain a global reference_df for the reference class analysis
 reference_df = None
@@ -54,7 +50,6 @@ def rate_limit_handler(func):
 # Unified function to fetch data via Alpha Vantage
 # period is a user-friendly param that we map to outputsize.
 ########################################################
-ALPHA_VANTAGE_KEY = os.getenv("ALPHA_VANTAGE_KEY")
 # We'll create two separate TimeSeries clients:
 ts_unadj = TimeSeries(key=ALPHA_VANTAGE_KEY, output_format='pandas')
 ts_adj = TimeSeries(key=ALPHA_VANTAGE_KEY, output_format='pandas')
