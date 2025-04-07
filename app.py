@@ -274,20 +274,20 @@ def classify_news_sentiment_with_gpt(headlines_info):
 # Main Forecast Endpoint
 ########################################################
 @app.route('/forecast', methods=['POST'])
+@app.route('/forecast', methods=['POST'])
 def forecast():
-    news_sentiment_summary = classify_news_sentiment_with_gpt(headlines_info)
     user_input = request.get_json()
     asset_symbol = user_input.get('asset_symbol')
     if not asset_symbol:
         return jsonify({"error": "asset_symbol is required"}), 400
-    
+
     try:
         drawdown, volatility_30d, volatility_7d, momentum_1w = get_price_metrics(asset_symbol)
     except Exception as e:
         print(f"Error in get_price_metrics: {e}")
         return jsonify({"error": f"Failed to compute price metrics: {str(e)}"}), 500
 
-    # Load reference class (5 years) from yfinance + do nearest neighbors
+    # Load reference class data
     df = load_reference_class()
     if df.empty or 'drawdown_pct' not in df.columns:
         return jsonify({"error": "Reference class data could not be loaded. Please try again later."}), 503
@@ -305,9 +305,9 @@ def forecast():
     vol_spike_ratio = (volatility_7d / volatility_30d) if (volatility_30d and not np.isnan(volatility_30d)) else None
     momentum_signal = 'positive' if momentum_1w > 0 else 'negative' if momentum_1w < 0 else 'neutral'
 
-    # Summarize recent news
-    headlines_info = fetch_recent_headlines(asset_symbol, languages=['en','fr','de','ja'], num_articles=5)
-    sentiment_summary = classify_news_sentiment_with_gpt(headlines_info)
+    # Fetch headlines BEFORE sentiment classification
+    headlines_info = fetch_recent_headlines(asset_symbol, languages=['en'], num_articles=15)
+    news_sentiment_summary = classify_news_sentiment_with_gpt(headlines_info)
 
     response = {
         'matched_cases': similar_cases.to_dict(orient='records'),
@@ -319,10 +319,12 @@ def forecast():
         'momentum_1w': round(momentum_1w, 4),
         'momentum_signal': momentum_signal,
         'volatility_spike_ratio': round(vol_spike_ratio, 2) if vol_spike_ratio else None,
-        'news_sentiment_summary': sentiment_summary,
+        'news_sentiment_summary': news_sentiment_summary,
         'average_time_to_recovery_months': round(avg_time_to_recovery, 2) if not np.isnan(avg_time_to_recovery) else None
     }
+
     return jsonify(response)
+
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)
