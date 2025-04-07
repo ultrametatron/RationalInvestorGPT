@@ -128,64 +128,50 @@ app = Flask(__name__)
 def home():
     return "RationalInvestorGPT API: AV for short-term, yfinance for 5-year reference class."
 
+@app.route('/forecast', methods=['POST'])
+def forecast():
+    data = request.get_json()
+    asset_symbol = data.get('asset_symbol')
+
+    if not asset_symbol:
+        return jsonify({"error": "Asset symbol is required"}), 400
+
+    drawdown_pct, volatility_30d, volatility_7d, momentum_1w = get_price_metrics(asset_symbol)
+
+    headlines_info = fetch_recent_headlines(asset_symbol, languages=['en'], num_articles=10)
+    news_sentiment_summary = classify_news_sentiment_with_gpt(headlines_info)
+
+    response = {
+        "asset_symbol": asset_symbol,
+        "drawdown_pct": drawdown_pct,
+        "volatility_30d": volatility_30d,
+        "volatility_7d": volatility_7d,
+        "momentum_1w": momentum_1w,
+        "news_sentiment_summary": news_sentiment_summary
+    }
+
+    return jsonify(response)
+
 # Fetch Recent Headlines (English Only)
 def fetch_recent_headlines(asset_symbol, languages=['en'], num_articles=10):
     all_headlines = []
 
     for lang in languages:
         url = "https://newsapi.org/v2/everything"
-        params = {
-            'q': asset_symbol,
-            'sortBy': 'publishedAt',
-            'language': lang,
-            'pageSize': num_articles,
-            'apiKey': NEWS_API_KEY
-        }
-        try:
-            response = requests.get(url, params=params)
-            response.raise_for_status()
-            articles = response.json().get("articles", [])
-            print(f"Fetched {len(articles)} articles for {asset_symbol} in {lang}")  # Debugging
-            for article in articles:
-                title = article.get("title")
-                published_at_str = article.get("publishedAt")
-                if title and published_at_str:
-                    published_dt = datetime.datetime.fromisoformat(published_at_str.replace('Z', '+00:00'))
-                    days_ago = (datetime.datetime.utcnow() - published_dt).days
-                    all_headlines.append((title, published_dt, days_ago, lang))
-        except Exception as e:
-            print(f"Error fetching headlines: {e}")  # Debugging
-            continue
+        params = {'q': asset_symbol, 'sortBy': 'publishedAt', 'language': lang, 'pageSize': num_articles, 'apiKey': NEWS_API_KEY}
+        response = requests.get(url, params=params)
+        response.raise_for_status()
+        articles = response.json().get("articles", [])
+        for article in articles:
+            title = article.get("title")
+            published_at_str = article.get("publishedAt")
+            if title and published_at_str:
+                published_dt = datetime.datetime.fromisoformat(published_at_str.replace('Z', '+00:00'))
+                days_ago = (datetime.datetime.utcnow() - published_dt).days
+                all_headlines.append((title, published_dt, days_ago, lang))
 
     all_headlines.sort(key=lambda x: x[2])
     return all_headlines
-
-# Classify News Sentiment using GPT
-def classify_news_sentiment_with_gpt(headlines_info):
-    if not headlines_info:
-        return "No headlines found."
-
-    prompt = "Weigh recent headlines more heavily and classify each as Positive, Neutral, or Negative. Provide a summary sentiment score from -1 to +1.\n\n"
-
-    for title, _, days_ago, lang in headlines_info:
-        recency_label = "RECENT" if days_ago <= 2 else "OLDER"
-        prompt += f"[{lang.upper()}, {recency_label}, {days_ago} days ago]: {title}\n"
-
-    completion = openai.ChatCompletion.create(model="gpt-4o-mini", messages=[{"role": "user", "content": prompt}])
-    return completion.choices[0].message.content
-
-# Calculate Price Metrics
-@rate_limit_handler
-def get_price_metrics(ticker):
-    df = fetch_alpha_data(ticker)
-    df["returns"] = df["Close"].pct_change()
-    current_price = df["Close"].iloc[-1]
-    peak_price = df["Close"].max()
-    drawdown_pct = (current_price - peak_price) / peak_price if peak_price != 0 else 0
-    volatility_30d = df["returns"].rolling(30).std().iloc[-1] * np.sqrt(252)
-    volatility_7d = df["returns"].rolling(7).std().iloc[-1] * np.sqrt(252)
-    momentum_1w = df["Close"].pct_change(periods=5).iloc[-1]
-    return drawdown_pct, volatility_30d, volatility_7d, momentum_1w
 
 # Run Flask App
 if __name__ == '__main__':
