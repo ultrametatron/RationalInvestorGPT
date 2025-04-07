@@ -27,7 +27,6 @@ CACHE_EXPIRY_SECONDS = 900  # 15 minutes
 def get_cache_key(ticker, period):
     return f"{ticker}:{period}"
 
-
 # We'll maintain a global reference_df for the reference class analysis
 reference_df = None
 
@@ -47,44 +46,49 @@ def rate_limit_handler(func):
     return wrapper
 
 ########################################################
-# Unified function to fetch data via Alpha Vantage
-# period is a user-friendly param that we map to outputsize.
+# Create two separate TimeSeries clients:
+# 1) ts_unadj -> unadjusted daily
+# 2) ts_adj -> adjusted daily
 ########################################################
-# We'll create two separate TimeSeries clients:
 ts_unadj = TimeSeries(key=ALPHA_VANTAGE_KEY, output_format='pandas')
-ts_adj = TimeSeries(key=ALPHA_VANTAGE_KEY, output_format='pandas')
-...
+ts_adj   = TimeSeries(key=ALPHA_VANTAGE_KEY, output_format='pandas')
+
+########################################################
+# Unified function to fetch data via Alpha Vantage
+########################################################
 @rate_limit_handler
 def fetch_alpha_data(ticker: str, period: str = '2mo') -> pd.DataFrame:
-    ...
-    if period == '5y':
-        # Use unadjusted daily with 'full'
-        data, meta_data = ts_unadj.get_daily(symbol=ticker, outputsize='full')
-        df = data.copy()
-        # rename columns...
-    else:
-        data, meta_data = ts_adj.get_daily_adjusted(symbol=ticker, outputsize=outputsize)
-        df = data.copy()
-        # rename columns...
-    ...
-
+    """
+    Fetch daily historical data from Alpha Vantage.
     
-    # Check cache first
+    If period == '5y', use unadjusted daily (full) to avoid the premium endpoint on adjusted data.
+    Otherwise, default to daily_adjusted with 'compact' or 'full' as needed.
+    Caches results for CACHE_EXPIRY_SECONDS.
+    """
+
+    # 1) Check if data is cached
     cache_key = get_cache_key(ticker, period)
     cached_entry = cache_storage.get(cache_key)
     now = datetime.datetime.utcnow()
-
-    # If cached data exists and not expired
     if cached_entry:
         df_cached, timestamp = cached_entry
         if (now - timestamp).total_seconds() < CACHE_EXPIRY_SECONDS:
             return df_cached
 
-    # Fetch fresh data
-    data, meta_data = ts.get_daily_adjusted(symbol=ticker, outputsize=outputsize)
-    df = data.copy()
+    # 2) Decide which endpoint to call
+    if period == '5y':
+        # Use unadjusted daily with 'full' (should avoid premium error)
+        data, meta_data = ts_unadj.get_daily(symbol=ticker, outputsize='full')
+    else:
+        # For shorter data, let's use daily_adjusted
+        # If you only need ~2 months, let's do 'compact'; otherwise 'full' if you have other custom periods
+        if period == '2mo':
+            data, meta_data = ts_adj.get_daily_adjusted(symbol=ticker, outputsize='compact')
+        else:
+            data, meta_data = ts_adj.get_daily_adjusted(symbol=ticker, outputsize='full')
 
-    # Rename columns
+    # 3) Convert to DataFrame and rename columns
+    df = data.copy()
     df.rename(columns={
         '1. open': 'Open',
         '2. high': 'High',
@@ -97,10 +101,9 @@ def fetch_alpha_data(ticker: str, period: str = '2mo') -> pd.DataFrame:
     df.index = pd.to_datetime(df.index)
     df.sort_index(inplace=True)
 
-    # Store in cache
+    # 4) Store in cache
     cache_storage[cache_key] = (df, now)
     return df
-
 
 ########################################################
 # Reference Class Loading using Alpha Vantage
@@ -156,7 +159,7 @@ def home():
 ########################################################
 # News Headline Fetching (Multi-Language + Recency)
 ########################################################
-def fetch_recent_headlines(asset_symbol, languages=['en','fr', 'de', 'ja'], num_articles=15):
+def fetch_recent_headlines(asset_symbol, languages=['en','fr', 'de', 'ja'], num_articles=5):
     """
     Fetch recent headlines in multiple languages from NewsAPI,
     capturing publishedAt for recency weighting.
@@ -178,22 +181,18 @@ def fetch_recent_headlines(asset_symbol, languages=['en','fr', 'de', 'ja'], num_
             articles = response.json().get("articles", [])
             for article in articles:
                 title = article.get("title")
-                published_at_str = article.get("publishedAt")  # e.g., '2023-03-10T14:12:00Z'
+                published_at_str = article.get("publishedAt")
                 if title and published_at_str:
-                    # Parse ISO 8601 datetime
                     published_dt = datetime.datetime.fromisoformat(published_at_str.replace('Z', '+00:00'))
                     days_ago = (datetime.datetime.utcnow() - published_dt).days
-                    # Store a tuple: (title, published_dt, days_ago, language)
                     all_headlines.append((title, published_dt, days_ago, lang))
         except Exception as e:
-            # We'll store a synthetic 'error' headline
             all_headlines.append((f"Error fetching {lang} headlines: {str(e)}", None, 9999, lang))
 
     # Sort by recency (ascending days_ago => more recent first)
     all_headlines.sort(key=lambda x: x[2])
 
     return all_headlines
-
 
 ########################################################
 # Sentiment classification with GPT (recency weighting)
@@ -213,10 +212,8 @@ def classify_news_sentiment_with_gpt(headlines_info):
         "At the end, provide a short summary line with an overall sentiment score from -1 to +1 (e.g., 'Overall score: +0.3').\n\n"
     )
 
-    # Add each headline to the prompt, including recency & language
     for (title, published_dt, days_ago, lang) in headlines_info:
         recency_label = "RECENT" if days_ago <= 2 else "OLDER"
-        # Example prompt line
         prompt += f"- [{lang.upper()}, {recency_label}, {days_ago} days ago]: {title}\n"
 
     messages = [
@@ -233,19 +230,16 @@ def classify_news_sentiment_with_gpt(headlines_info):
     except Exception as e:
         return f"Error generating sentiment summary: {str(e)}"
 
-
 ########################################################
-# Replace yfinance-based get_price_metrics with Alpha Vantage
+# get_price_metrics using Alpha Vantage
 ########################################################
 @rate_limit_handler
 def get_price_metrics(ticker):
-    # Fetch ~2 months of daily data from Alpha Vantage
-    df = fetch_alpha_data(ticker, period="2mo")
+    df = fetch_alpha_data(ticker, period="2mo")  # ~2 months
     if 'Close' not in df.columns or df.empty:
         raise ValueError("'Close' column missing or no data returned from Alpha Vantage.")
 
     df["returns"] = df["Close"].pct_change()
-
     current_price = df["Close"].iloc[-1]
     peak_price = df["Close"].max()
     drawdown_pct = (current_price - peak_price) / peak_price if peak_price != 0 else 0
@@ -270,7 +264,6 @@ def get_price_metrics(ticker):
 def forecast():
     user_input = request.get_json()
     asset_symbol = user_input.get('asset_symbol')
-
     if not asset_symbol:
         return jsonify({"error": "asset_symbol is required"}), 400
 
@@ -298,9 +291,8 @@ def forecast():
     vol_spike_ratio = (volatility_7d / volatility_30d) if (volatility_30d and not np.isnan(volatility_30d)) else None
     momentum_signal = 'positive' if momentum_1w > 0 else 'negative' if momentum_1w < 0 else 'neutral'
 
-    headlines_info = fetch_recent_headlines(asset_symbol, languages=['en','fr', 'de', 'ja'], num_articles=5)
+    headlines_info = fetch_recent_headlines(asset_symbol, languages=['en','fr','de','ja'], num_articles=5)
     sentiment_summary = classify_news_sentiment_with_gpt(headlines_info)
-
 
     response = {
         'matched_cases': similar_cases.to_dict(orient='records'),
