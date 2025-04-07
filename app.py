@@ -159,7 +159,7 @@ def home():
 ########################################################
 # News Headline Fetching (Multi-Language + Recency)
 ########################################################
-def fetch_recent_headlines(asset_symbol, languages=['en','fr', 'de', 'ja'], num_articles=5):
+def fetch_recent_headlines(asset_symbol, languages=['en'], num_articles=10):
     """
     Fetch recent headlines in multiple languages from NewsAPI,
     capturing publishedAt for recency weighting.
@@ -172,7 +172,7 @@ def fetch_recent_headlines(asset_symbol, languages=['en','fr', 'de', 'ja'], num_
             'q': asset_symbol,
             'sortBy': 'publishedAt',
             'language': lang,
-            'pageSize': num_articles,
+            'pageSize': 10,
             'apiKey': NEWS_API_KEY
         }
         try:
