@@ -1,8 +1,9 @@
 Flask
 requests
-pandas
-numpy
 python-dotenv
 openai
 alpha_vantage
+yfinance
+pandas
+numpy
 scikit-learn
