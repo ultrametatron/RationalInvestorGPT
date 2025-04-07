@@ -54,18 +54,25 @@ def rate_limit_handler(func):
 # Unified function to fetch data via Alpha Vantage
 # period is a user-friendly param that we map to outputsize.
 ########################################################
+ALPHA_VANTAGE_KEY = os.getenv("ALPHA_VANTAGE_KEY")
+# We'll create two separate TimeSeries clients:
+ts_unadj = TimeSeries(key=ALPHA_VANTAGE_KEY, output_format='pandas')
+ts_adj = TimeSeries(key=ALPHA_VANTAGE_KEY, output_format='pandas')
+...
 @rate_limit_handler
 def fetch_alpha_data(ticker: str, period: str = '2mo') -> pd.DataFrame:
-    """
-    Fetch daily historical data from Alpha Vantage.
-    period: '2mo' or '5y' etc. (mapped to 'compact' or 'full')
-    Returns: DataFrame with columns: 'Open', 'High', 'Low', 'Close', 'Adj Close', 'Volume'
-    """
-    # Decide outputsize based on period
-    if period == '2mo':
-        outputsize = 'compact'
+    ...
+    if period == '5y':
+        # Use unadjusted daily with 'full'
+        data, meta_data = ts_unadj.get_daily(symbol=ticker, outputsize='full')
+        df = data.copy()
+        # rename columns...
     else:
-        outputsize = 'full'
+        data, meta_data = ts_adj.get_daily_adjusted(symbol=ticker, outputsize=outputsize)
+        df = data.copy()
+        # rename columns...
+    ...
+
     
     # Check cache first
     cache_key = get_cache_key(ticker, period)
