@@ -12,6 +12,7 @@ from alpha_vantage.timeseries import TimeSeries
 import time
 import os
 import datetime
+import yfinance as yf
 
 from dotenv import load_dotenv
 
@@ -104,19 +105,16 @@ def fetch_alpha_data(ticker: str, period: str = '2mo') -> pd.DataFrame:
 ########################################################
 # Reference Class Loading using Alpha Vantage
 ########################################################
-def load_reference_class() -> pd.DataFrame:
+def load_reference_class(asset_symbol: str = 'SPY') -> pd.DataFrame:
     global reference_df
-    if reference_df is not None:
+    if reference_df is not None and asset_symbol == 'SPY':
         return reference_df
 
-    # For 5-year daily data, we call fetch_alpha_data with '5y'
-    df = fetch_alpha_data('SPY', period='5y')
-    # If 'Close' missing, return empty DataFrame
-    if 'Close' not in df.columns or df.empty:
-        reference_df = pd.DataFrame()
-        return reference_df
+    df = yf.download(asset_symbol, period='5y', interval='1d')
 
-    # Compute rolling metrics
+    if df.empty or 'Close' not in df.columns:
+        return pd.DataFrame()
+
     df['returns'] = df['Close'].pct_change()
     df['rolling_max'] = df['Close'].rolling(window=252, min_periods=1).max()
     df['drawdown_pct'] = (df['Close'] - df['rolling_max']) / df['rolling_max']
@@ -125,7 +123,6 @@ def load_reference_class() -> pd.DataFrame:
     df['momentum_1w'] = df['Close'].pct_change(periods=5)
     df['forward_return_3mo'] = df['Close'].pct_change(periods=63).shift(-63)
 
-    # Compute time to recovery
     df['time_to_recovery'] = np.nan
     for i in range(len(df)):
         current_price = df['Close'].iloc[i]
@@ -134,14 +131,19 @@ def load_reference_class() -> pd.DataFrame:
                 df.at[df.index[i], 'time_to_recovery'] = (df.index[j] - df.index[i]).days / 30.0
                 break
 
-    df = df.dropna(subset=['forward_return_3mo', 'time_to_recovery'])
+    df.dropna(subset=['forward_return_3mo', 'time_to_recovery'], inplace=True)
     df['rebounded'] = (df['forward_return_3mo'] > 0).astype(int)
     df['recovery_months'] = np.where(df['rebounded'] == 1, 3, 6)
 
-    # Keep only needed columns
-    reference_df = df[['drawdown_pct', 'volatility_30d', 'volatility_7d', 'momentum_1w', 'rebounded', 'recovery_months', 'time_to_recovery']].dropna()
+    final_df = df[['drawdown_pct', 'volatility_30d', 'volatility_7d', 'momentum_1w',
+                   'rebounded', 'recovery_months', 'time_to_recovery']].dropna()
 
-    return reference_df
+    # Cache SPY as global reference
+    if asset_symbol == 'SPY':
+        reference_df = final_df
+
+    return final_df
+
 
 ########################################################
 # Flask Application
@@ -247,7 +249,7 @@ def forecast():
         return jsonify({"error": f"Failed to compute price metrics: {str(e)}"}), 500
 
     # Load reference class and fit nearest neighbors model
-    df = load_reference_class()
+    df = load_reference_class(asset_symbol)
     if df.empty or 'drawdown_pct' not in df.columns:
         return jsonify({"error": "Reference class data could not be loaded. Please try again later."}), 503
 
