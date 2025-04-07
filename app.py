@@ -229,7 +229,11 @@ def classify_news_sentiment_with_gpt(headlines_info):
         return completion.choices[0].message.content
 
     except Exception as e:
-        return f"Error generating sentiment summary: {str(e)}"
+        print(f"NewsAPI request error: {str(e)}")
+        continue
+
+    print(f"Fetched {len(articles)} articles for {asset_symbol} in {lang}")
+
 
 
 ########################################################
