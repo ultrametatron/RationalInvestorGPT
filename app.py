@@ -274,7 +274,6 @@ def classify_news_sentiment_with_gpt(headlines_info):
 # Main Forecast Endpoint
 ########################################################
 @app.route('/forecast', methods=['POST'])
-@app.route('/forecast', methods=['POST'])
 def forecast():
     user_input = request.get_json()
     asset_symbol = user_input.get('asset_symbol')
