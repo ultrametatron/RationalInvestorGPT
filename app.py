@@ -159,7 +159,7 @@ def home():
 ########################################################
 # News Headline Fetching (Multi-Language + Recency)
 ########################################################
-def fetch_recent_headlines(asset_symbol, languages=['en'], num_articles=10):
+def fetch_recent_headlines(asset_symbol, languages=['en','fr', 'de', 'ja'], num_articles=5):
     """
     Fetch recent headlines in multiple languages from NewsAPI,
     capturing publishedAt for recency weighting.
@@ -187,7 +187,7 @@ def fetch_recent_headlines(asset_symbol, languages=['en'], num_articles=10):
                     days_ago = (datetime.datetime.utcnow() - published_dt).days
                     all_headlines.append((title, published_dt, days_ago, lang))
         except Exception as e:
-            all_headlines.append((f"Error fetching {lang} headlines: {str(e)}", None, 9999, lang))
+            continue  # skip appending errors as headlines
 
     # Sort by recency (ascending days_ago => more recent first)
     all_headlines.sort(key=lambda x: x[2])
@@ -203,7 +203,8 @@ def classify_news_sentiment_with_gpt(headlines_info):
         return "No headlines found."
 
     prompt = (
-        "You are a financial sentiment analyst. "
+        "We have financial news headlines in multiple languages. "
+        "Please translate non-English headlines into English if needed, then classify each headline as Positive, Neutral, or Negative. "
         "Weigh more recent headlines (lower 'days_ago') more heavily in forming an overall sentiment. "
         "At the end, provide a short summary line with an overall sentiment score from -1 to +1 (e.g., 'Overall score: +0.3').\n\n"
     )
@@ -213,7 +214,7 @@ def classify_news_sentiment_with_gpt(headlines_info):
         prompt += f"- [{lang.upper()}, {recency_label}, {days_ago} days ago]: {title}\n"
 
     messages = [
-        {"role": "system", "content": "You are a financial sentiment analyst."},
+        {"role": "system", "content": "You are a multilingual financial sentiment analyst."},
         {"role": "user", "content": prompt}
     ]
 
@@ -221,7 +222,7 @@ def classify_news_sentiment_with_gpt(headlines_info):
         client = openai.OpenAI(api_key=OPENAI_API_KEY)
 
         completion = client.chat.completions.create(
-            model="gpt-4o-mini",
+            model="gpt-4",
             messages=messages
         )
 
@@ -303,7 +304,7 @@ def forecast():
     momentum_signal = 'positive' if momentum_1w > 0 else 'negative' if momentum_1w < 0 else 'neutral'
 
     # Summarize recent news
-    headlines_info = fetch_recent_headlines(asset_symbol, languages=['en'], num_articles=10)
+    headlines_info = fetch_recent_headlines(asset_symbol, languages=['en','fr','de','ja'], num_articles=5)
     sentiment_summary = classify_news_sentiment_with_gpt(headlines_info)
 
     response = {
