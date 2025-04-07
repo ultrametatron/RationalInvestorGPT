@@ -1,8 +1,9 @@
+alpha_vantage
+sklearn
 flask
 pandas
 numpy
 scikit-learn
 requests
 openai
-yfinance
 python-dotenv
