@@ -198,41 +198,40 @@ def fetch_recent_headlines(asset_symbol, languages=['en'], num_articles=10):
 # Sentiment classification with GPT (recency weighting)
 ########################################################
 
-def classify_news_sentiment_with_gpt(headlines_info):
-    if not headlines_info:
-        return "No headlines found."
-
-    prompt = (
-        "We have financial news headlines in multiple languages. "
-        "Please translate non-English headlines into English if needed, then classify each headline as Positive, Neutral, or Negative. "
-        "Weigh more recent headlines (lower 'days_ago') more heavily in forming an overall sentiment. "
-        "At the end, provide a short summary line with an overall sentiment score from -1 to +1 (e.g., 'Overall score: +0.3').\n\n"
-    )
-
-    for (title, published_dt, days_ago, lang) in headlines_info:
-        recency_label = "RECENT" if days_ago <= 2 else "OLDER"
-        prompt += f"- [{lang.upper()}, {recency_label}, {days_ago} days ago]: {title}\n"
-
-    messages = [
-        {"role": "system", "content": "You are a multilingual financial sentiment analyst."},
-        {"role": "user", "content": prompt}
-    ]
+def fetch_recent_headlines(asset_symbol, languages=['en'], num_articles=15):
+    """
+    Fetch recent English headlines from NewsAPI, capturing publishedAt for recency weighting.
+    """
+    url = "https://newsapi.org/v2/everything"
+    params = {
+        'q': asset_symbol,
+        'sortBy': 'publishedAt',
+        'language': 'en',
+        'pageSize': num_articles,
+        'apiKey': NEWS_API_KEY
+    }
+    all_headlines = []
 
     try:
-        client = openai.OpenAI(api_key=OPENAI_API_KEY)
+        response = requests.get(url, params=params)
+        response.raise_for_status()
+        articles = response.json().get("articles", [])
 
-        completion = client.chat.completions.create(
-            model="gpt-4",
-            messages=messages
-        )
+        for article in articles:
+            title = article.get("title")
+            published_at_str = article.get("publishedAt")
+            if title and published_at_str:
+                published_dt = datetime.datetime.fromisoformat(published_at_str.replace('Z', '+00:00'))
+                days_ago = (datetime.datetime.now(datetime.timezone.utc) - published_dt).days
+                all_headlines.append((title, published_dt, days_ago))
 
-        return completion.choices[0].message.content
+        all_headlines.sort(key=lambda x: x[2])
 
     except Exception as e:
-        print(f"NewsAPI request error: {str(e)}")
-        continue
+        print(f"Error fetching headlines: {e}")
 
-    print(f"Fetched {len(articles)} articles for {asset_symbol} in {lang}")
+    return all_headlines
+
 
 
 
@@ -240,38 +239,36 @@ def classify_news_sentiment_with_gpt(headlines_info):
 # get_price_metrics using short-term Alpha Vantage
 ########################################################
 @rate_limit_handler
-def get_price_metrics(ticker):
-    """
-    Uses Alpha Vantage unadjusted daily (compact) to fetch ~2mo of data.
-    Then calculates basic drawdown, volatility, momentum for the forecast endpoint.
-    """
-    df = fetch_alpha_data(ticker)
-    if 'Close' not in df.columns or df.empty:
-        raise ValueError("'Close' column missing or no data returned from Alpha Vantage.")
+def classify_news_sentiment_with_gpt(headlines_info):
+    if not headlines_info:
+        return "No headlines found."
 
-    df["returns"] = df["Close"].pct_change()
-    current_price = df["Close"].iloc[-1]
-    peak_price = df["Close"].max()
-    drawdown_pct = (current_price - peak_price) / peak_price if peak_price != 0 else 0
-
-    # 30-day volatility
-    volatility_30d = (
-        df["returns"].rolling(30).std().iloc[-1] * np.sqrt(252)
-        if len(df) >= 30 else np.nan
-    )
-    # 7-day volatility
-    volatility_7d = (
-        df["returns"].rolling(7).std().iloc[-1] * np.sqrt(252)
-        if len(df) >= 7 else np.nan
+    prompt = (
+        "Classify each financial news headline as Positive, Neutral, or Negative. "
+        "Weigh recent headlines (fewer days ago) more heavily when determining overall sentiment. "
+        "Provide a concise summary at the end with an overall sentiment score from -1 (very negative) to +1 (very positive).\n\n"
     )
 
-    # 1-week momentum
-    if len(df) >= 6:
-        momentum_1w = (df["Close"].iloc[-1] - df["Close"].iloc[-6]) / df["Close"].iloc[-6]
-    else:
-        momentum_1w = 0.0
+    for title, _, days_ago in headlines_info:
+        recency_label = "RECENT" if days_ago <= 2 else "OLDER"
+        prompt += f"- [{recency_label}, {days_ago} days ago]: {title}\n"
 
-    return drawdown_pct, volatility_30d, volatility_7d, momentum_1w
+    messages = [
+        {"role": "system", "content": "You are a financial sentiment analyst."},
+        {"role": "user", "content": prompt}
+    ]
+
+    try:
+        completion = openai.ChatCompletion.create(
+            model="gpt-4o-mini",
+            messages=messages
+        )
+
+        return completion.choices[0].message.content
+
+    except Exception as e:
+        print(f"Error with GPT sentiment analysis: {e}")
+        return "Sentiment analysis could not be performed."
 
 ########################################################
 # Main Forecast Endpoint
@@ -308,7 +305,7 @@ def forecast():
     momentum_signal = 'positive' if momentum_1w > 0 else 'negative' if momentum_1w < 0 else 'neutral'
 
     # Summarize recent news
-    headlines_info = fetch_recent_headlines(asset_symbol, languages=['en','fr','de','ja'], num_articles=5)
+    headlines_info = fetch_recent_headlines(asset_symbol, languages=['en'], num_articles=15)
     sentiment_summary = classify_news_sentiment_with_gpt(headlines_info)
 
     response = {
