@@ -180,7 +180,7 @@ def fetch_recent_headlines(asset_symbol, languages=['en'], num_articles=10):
             published_at_str = article.get("publishedAt")
             if title and published_at_str:
                 published_dt = datetime.datetime.fromisoformat(published_at_str.replace('Z', '+00:00'))
-                days_ago = (datetime.datetime.utcnow() - published_dt).days
+                days_ago = (datetime.datetime.now(datetime.timezone.utc) - published_dt).days
                 all_headlines.append((title, published_dt, days_ago, lang))
 
     all_headlines.sort(key=lambda x: x[2])
